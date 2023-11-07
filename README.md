@@ -1,6 +1,7 @@
 # fileIntegritySync
+[![Bandit](https://github.com/swiftraccoon/fileIntegritySync/actions/workflows/bandit.yml/badge.svg)](https://github.com/swiftraccoon/fileIntegritySync/actions/workflows/bandit.yml)[![CodeQL](https://github.com/swiftraccoon/fileIntegritySync/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/swiftraccoon/fileIntegritySync/actions/workflows/github-code-scanning/codeql)[![Pylint](https://github.com/swiftraccoon/fileIntegritySync/actions/workflows/pylint.yml/badge.svg)](https://github.com/swiftraccoon/fileIntegritySync/actions/workflows/pylint.yml)[![Python Tests](https://github.com/swiftraccoon/fileIntegritySync/actions/workflows/python-tests.yml/badge.svg)](https://github.com/swiftraccoon/fileIntegritySync/actions/workflows/python-tests.yml)
 
-fileIntegritySync is a tool designed to synchronize files between a local and a remote directory, ensuring integrity by comparing file sizes and allowing for selective re-downloading of files.
+`fileIntegritySync` is a tool designed to synchronize files between a local and a remote directory, ensuring integrity by comparing file sizes and allowing for selective re-downloading of files.
 
 ## Features
 
