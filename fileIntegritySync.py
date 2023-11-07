@@ -17,22 +17,22 @@ with open('config.json', 'r') as config_file:
 # Set up command-line argument parsing
 parser = argparse.ArgumentParser(
     description='Synchronize files based on size differences.')
-parser.add_argument('--local-path', help='Local directory path', required=True)
+parser.add_argument('--local-path', help='Local directory path',
+                    required=True)
 parser.add_argument(
     '--remote-path', help='Remote directory path', required=True)
 args = parser.parse_args()
 
+
 # Function to get local files and their sizes
-
-
 def get_local_files(local_path):
     for root, dirs, files in os.walk(local_path):
         for name in files:
-            yield os.path.join(root, name), os.path.getsize(os.path.join(root, name))
+            file_path = os.path.join(root, name)
+            yield file_path, os.path.getsize(file_path)
+
 
 # Function to get remote files and their sizes using SSH
-
-
 def get_remote_files(ssh_client, remote_path):
     stdin, stdout, stderr = ssh_client.exec_command(
         f'find {remote_path} -type f')
@@ -44,9 +44,8 @@ def get_remote_files(ssh_client, remote_path):
         file_sizes[file_path.decode()] = int(stdout.read().strip())
     return file_sizes
 
+
 # Function to compare local and remote files
-
-
 def compare_files(local_files, remote_files):
     diff_files = {}
     for local_path, local_size in local_files:
@@ -57,16 +56,14 @@ def compare_files(local_files, remote_files):
                 local_size, remote_file['size'], remote_file['path'])
     return diff_files
 
+
 # Function to download files from remote
-
-
 def download_file(sftp_client, local_file, remote_file):
     sftp_client.get(remote_file, local_file)
     logging.info(f"Downloaded {remote_file} to {local_file}")
 
+
 # Main function
-
-
 def main():
     local_path = args.local_path
     remote_path = args.remote_path
@@ -91,48 +88,62 @@ def main():
         diff_files = compare_files(local_files, remote_files)
         if diff_files:
             logging.info("Files with different sizes:")
-            for index, (filename, (local_size, remote_size, remote_path)) in enumerate(diff_files.items(), start=1):
-                logging.info(
-                    f"{index}. {filename} - Local size: {local_size} bytes, Remote size: {remote_size} bytes")
+            for index, (filename, (local_size, remote_size, remote_path)) \
+                    in enumerate(diff_files.items(), start=1):
+                logging.info(f"{index}. {filename} - Local size: "
+                             f"{local_size} bytes, Remote size: "
+                             f"{remote_size} bytes")
 
             # Ask user for action
             files_to_download = []
             while True:
-                user_input = input(
-                    "Enter the numbers of the files you want to download (e.g., 1-5,6-10), or 'all' to download all files: ")
+                user_input = input("Enter the numbers of the files you want "
+                                   "to download (e.g., 1-5,6-10), or 'all' to "
+                                   "download all files: ")
                 if user_input.lower() == 'all':
-                    files_to_download = [(os.path.join(local_path, filename), remote_path)
-                                         for filename, (_, _, remote_path) in diff_files.items()]
+                    files_to_download = [
+                        (os.path.join(local_path, filename), remote_path)
+                        for filename, (_, _, remote_path)
+                        in diff_files.items()
+                    ]
                     break
                 else:
                     try:
-                        ranges = [range_str.split(
-                            '-') for range_str in user_input.split(',')]
+                        ranges = [range_str.split('-')
+                                  for range_str in user_input.split(',')]
                         for range_str in ranges:
                             if len(range_str) == 1:
                                 index = int(range_str[0]) - 1
                                 filename, (_, _, remote_path) = list(
                                     diff_files.items())[index]
                                 files_to_download.append(
-                                    (os.path.join(local_path, filename), remote_path))
+                                    (os.path.join(local_path, filename),
+                                     remote_path))
                             else:
                                 start, end = map(int, range_str)
                                 files_to_download.extend(
-                                    [(os.path.join(local_path, filename), remote_path) for filename,
-                                     (_, _, remote_path) in list(diff_files.items())[start-1:end]]
+                                    [(os.path.join(local_path, filename),
+                                      remote_path)
+                                     for filename, (_, _, remote_path)
+                                     in list(diff_files.items())[start-1:end]]
                                 )
                         break
                     except (ValueError, IndexError):
-                        logging.error(
-                            "Invalid input. Please enter a valid range or 'all'.")
+                        logging.error("Invalid input. Please enter a valid "
+                                      "range or 'all'.")
 
             # Download files with progress bar and concurrency
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                futures = [executor.submit(download_file, sftp_client, local_file, remote_file)
-                           for local_file, remote_file in files_to_download]
+            with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=4) as executor:
+                futures = [
+                    executor.submit(download_file, sftp_client, local_file,
+                                    remote_file)
+                    for local_file, remote_file in files_to_download
+                ]
 
-                for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Downloading"):
-                    future.result()  # This will raise any exceptions caught by the download_file function
+                for future in tqdm(concurrent.futures.as_completed(futures),
+                                   total=len(futures), desc="Downloading"):
+                    future.result()  # Raises exceptions from download_file
 
             logging.info("Selected files have been downloaded.")
         else:
@@ -147,6 +158,5 @@ def main():
             ssh_client.close()
 
 
-# Run the script
 if __name__ == '__main__':
     main()
