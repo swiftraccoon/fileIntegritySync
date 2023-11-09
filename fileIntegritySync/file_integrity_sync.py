@@ -1,17 +1,21 @@
+"""This module synchronizes files based on size differences."""
+
 import os
-import paramiko
 import json
 import argparse
 import logging
 import concurrent.futures
 from tqdm import tqdm
+import paramiko
 
-# Initialize logging
+# Configure logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Load configuration from a JSON file
-with open('config.json', 'r') as config_file:
+script_dir = os.path.dirname(os.path.realpath(__file__))
+config_path = os.path.join(script_dir, 'config.json')
+with open(config_path, 'r', encoding='utf-8') as config_file:
     config = json.load(config_file)
 
 # Set up command-line argument parsing
@@ -19,52 +23,63 @@ parser = argparse.ArgumentParser(
     description='Synchronize files based on size differences.')
 parser.add_argument('--local-path', help='Local directory path',
                     required=True)
-parser.add_argument(
-    '--remote-path', help='Remote directory path', required=True)
+parser.add_argument('--remote-path', help='Remote directory path',
+                    required=True)
 args = parser.parse_args()
 
 
-# Function to get local files and their sizes
 def get_local_files(local_path):
-    for root, dirs, files in os.walk(local_path):
+    """Function to get local files and their sizes."""
+    for root, _, files in os.walk(local_path):
         for name in files:
             file_path = os.path.join(root, name)
             yield file_path, os.path.getsize(file_path)
 
 
-# Function to get remote files and their sizes using SSH
-def get_remote_files(ssh_client, remote_path):
-    stdin, stdout, stderr = ssh_client.exec_command(
-        f'find {remote_path} -type f')
-    file_paths = stdout.read().splitlines()
+def get_remote_files(ssh_client, remote_path, local_filenames):
+    """Function to get remote files and their sizes using SSH."""
     file_sizes = {}
-    for file_path in file_paths:
-        stdin, stdout, stderr = ssh_client.exec_command(
-            f'stat -c %s "{file_path.decode()}"')
-        file_sizes[file_path.decode()] = int(stdout.read().strip())
+    for filename in local_filenames:
+        # Escape single quotes for use in the shell command
+        escaped_filename = filename.replace("'", "'\\''")
+        find_command = (
+            f"find {remote_path} -type f -name '{escaped_filename}'"
+        )
+        logging.info("Executing remote find command for %s", filename)
+        _, stdout, _ = ssh_client.exec_command(find_command)
+        result = stdout.read().splitlines()
+        if result:
+            remote_file_path = result[0].decode()
+            stat_command = f"stat -c %s '{remote_file_path}'"
+            _, stdout, _ = ssh_client.exec_command(stat_command)
+            file_sizes[filename] = {
+                'size': int(stdout.read().strip()),
+                'path': remote_file_path
+            }
     return file_sizes
 
 
-# Function to compare local and remote files
 def compare_files(local_files, remote_files):
+    """Function to compare local and remote files."""
     diff_files = {}
     for local_path, local_size in local_files:
         filename = os.path.basename(local_path)
         remote_file = remote_files.get(filename)
         if remote_file and local_size != remote_file['size']:
             diff_files[filename] = (
-                local_size, remote_file['size'], remote_file['path'])
+                local_size, remote_file['size'], remote_file['path']
+            )
     return diff_files
 
 
-# Function to download files from remote
 def download_file(sftp_client, local_file, remote_file):
+    """Function to download files from remote."""
     sftp_client.get(remote_file, local_file)
-    logging.info(f"Downloaded {remote_file} to {local_file}")
+    logging.info("Downloaded %s to %s", remote_file, local_file)
 
 
-# Main function
 def main():
+    """Main function."""
     local_path = args.local_path
     remote_path = args.remote_path
     hostname = config['hostname']
@@ -82,17 +97,20 @@ def main():
 
         # Get local and remote files
         local_files = list(get_local_files(local_path))
-        remote_files = get_remote_files(ssh_client, remote_path)
+        local_filenames = [os.path.basename(f[0]) for f in local_files]
+        remote_files = get_remote_files(ssh_client, remote_path,
+                                        local_filenames)
 
         # Compare files
         diff_files = compare_files(local_files, remote_files)
         if diff_files:
             logging.info("Files with different sizes:")
-            for index, (filename, (local_size, remote_size, remote_path)) \
-                    in enumerate(diff_files.items(), start=1):
-                logging.info(f"{index}. {filename} - Local size: "
-                             f"{local_size} bytes, Remote size: "
-                             f"{remote_size} bytes")
+            for index, (filename, file_details) in enumerate(
+                    diff_files.items(), start=1):
+                logging.info(
+                    "%d. %s - Local size: %d bytes, Remote size: %d bytes",
+                    index, filename, file_details[0], file_details[1]
+                )
 
             # Ask user for action
             files_to_download = []
@@ -102,9 +120,8 @@ def main():
                                    "download all files: ")
                 if user_input.lower() == 'all':
                     files_to_download = [
-                        (os.path.join(local_path, filename), remote_path)
-                        for filename, (_, _, remote_path)
-                        in diff_files.items()
+                        (os.path.join(local_path, filename), file_details[2])
+                        for filename, file_details in diff_files.items()
                     ]
                     break
                 else:
@@ -114,18 +131,19 @@ def main():
                         for range_str in ranges:
                             if len(range_str) == 1:
                                 index = int(range_str[0]) - 1
-                                filename, (_, _, remote_path) = list(
+                                filename, file_details = list(
                                     diff_files.items())[index]
                                 files_to_download.append(
                                     (os.path.join(local_path, filename),
-                                     remote_path))
+                                     file_details[2]))
                             else:
                                 start, end = map(int, range_str)
                                 files_to_download.extend(
                                     [(os.path.join(local_path, filename),
-                                      remote_path)
-                                     for filename, (_, _, remote_path)
-                                     in list(diff_files.items())[start-1:end]]
+                                      file_details[2])
+                                     for filename, file_details
+                                     in list(diff_files.items())
+                                     [start-1:end]]
                                 )
                         break
                     except (ValueError, IndexError):
@@ -133,8 +151,7 @@ def main():
                                       "range or 'all'.")
 
             # Download files with progress bar and concurrency
-            with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=4) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
                 futures = [
                     executor.submit(download_file, sftp_client, local_file,
                                     remote_file)
@@ -146,11 +163,14 @@ def main():
                     future.result()  # Raises exceptions from download_file
 
             logging.info("Selected files have been downloaded.")
+
         else:
             logging.info("All files are synchronized in size.")
 
-    except Exception as e:
-        logging.error(f"An error occurred: {e}")
+    except paramiko.SSHException as ssh_exc:
+        logging.error("SSH error occurred: %s", ssh_exc)
+    except Exception as exc:
+        logging.error("An error occurred: %s", exc)
     finally:
         if 'sftp_client' in locals():
             sftp_client.close()
