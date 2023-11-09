@@ -8,6 +8,10 @@ import concurrent.futures
 from tqdm import tqdm
 import paramiko
 
+# Set up detailed logging for Paramiko
+paramiko.sftp_file.SFTPFile.MAX_REQUEST_SIZE = pow(2, 22)
+paramiko.util.log_to_file('paramiko.log')
+
 # Configure logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
