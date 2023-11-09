@@ -151,7 +151,8 @@ def main():
                                       "range or 'all'.")
 
             # Download files with progress bar and concurrency
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=4) as executor:
                 futures = [
                     executor.submit(download_file, sftp_client, local_file,
                                     remote_file)
